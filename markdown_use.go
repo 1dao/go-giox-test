@@ -23,51 +23,86 @@ import (
 	"gioui.org/x/markdown"
 )
 
-func loadFont(fontfile string) (*opentype.Face, error) {
-	// 修改后的字体加载代码
-	fontData, err := os.ReadFile(fontfile)
+var (
+	regularFace *opentype.Face
+	boldFace    *opentype.Face
+	italicFace  *opentype.Face
+)
+
+func loadFont(fontPath string) (*opentype.Face, error) {
+	fontData, err := os.ReadFile(fontPath)
 	if err != nil {
-		return nil, fmt.Errorf("读取字体文件失败: %w", err)
+		return nil, fmt.Errorf("无法读取字体文件 %s, %w", fontPath, err)
+	}
+	face, err := opentype.Parse(fontData)
+	if err != nil {
+		return nil, fmt.Errorf("无法解析字体文件: %s, %w", fontPath, err)
+	}
+	return &face, nil
+}
+
+func loadFonts() error {
+	var err error
+	// 加载思源黑体常规体
+	regularFace, err = loadFont("fonts/SourceHanSansSC-Regular.otf")
+	if err != nil {
+		return fmt.Errorf("无法加载常规字体: %v", err)
 	}
 
-	// 使用opentype.Parse代替font.ParseTTF
-	chineseFace, err := opentype.Parse(fontData)
+	// 加载思源黑体粗体
+	boldFace, err = loadFont("fonts/SourceHanSansSC-Bold.otf")
 	if err != nil {
-		return nil, fmt.Errorf("解析字体文件失败: %w", err)
+		return fmt.Errorf("无法加载粗体: %v", err)
 	}
-	return &chineseFace, nil
+
+	// 加载江城斜黑作为斜体替代
+	italicFace, err = loadFont("fonts/JiangChengItalicBold400W.ttf")
+	if err != nil {
+		return fmt.Errorf("无法加载斜体: %v", err)
+	}
+	return nil
+}
+
+func configureShaper() *text.Shaper {
+	return text.NewShaper(
+		text.NoSystemFonts(),
+		text.WithCollection([]font.FontFace{
+			{
+				Font: font.Font{Typeface: "Source Han Sans", Weight: font.Normal},
+				Face: *regularFace,
+			},
+			{
+				Font: font.Font{Typeface: "Source Han Sans", Weight: font.Bold},
+				Face: *boldFace,
+			},
+			{
+				Font: font.Font{Typeface: "Source Han Sans", Weight: font.Normal, Style: font.Italic},
+				Face: *italicFace,
+			},
+		}),
+	)
 }
 
 func main() {
 	go func() {
+		// 加载字体
+		if err := loadFonts(); err != nil {
+			log.Fatalf("加载字体失败: %v", err)
+		}
+
+		// 配置 Shaper
+		shaper := configureShaper()
+
 		// 创建窗口
 		w := &app.Window{}
 		// 初始化主题
 		th := material.NewTheme()
-
-		chineseFontFile := "MSYaHeiMono.ttf" // 替换为你的字体文件路径
-		chineseFace, err := loadFont(chineseFontFile)
-		if err != nil {
-			panic(err)
-		}
-		// 直接使用chineseFace而不是FontFace结构体
-		th.Shaper = text.NewShaper(
-			text.NoSystemFonts(),
-			text.WithCollection([]font.FontFace{
-				{
-					Font: font.Font{Typeface: "Noto Sans CJK SC"},
-					Face: *chineseFace, // 这里直接使用解析出的face
-				},
-			}),
-		)
+		th.Shaper = shaper
 
 		// 创建 Markdown 渲染器
 		renderer := markdown.NewRenderer()
-		// coll, _ := opentype.ParseCollection(gomono.TTF)
-		// shaper := text.NewShaper(text.NoSystemFonts(), text.WithCollection(coll))
-
 		renderer.Config = markdown.Config{
-			//DefaultFont:      text.Font{},
+			DefaultFont:      font.Font{Weight: font.Normal, Style: font.Regular},
 			DefaultSize:      unit.Sp(16),
 			DefaultColor:     th.Palette.Fg,
 			InteractiveColor: th.Palette.ContrastBg,
@@ -78,7 +113,7 @@ func main() {
 # Gio Markdown示例
 
 ## 基本功能展示 
-- 支持**粗体**和*斜体*文本 
+- 支持**粗体**和*斜体* *test* **xxxx**文本 
 - 支持[链接](https://gioui.org) 
 - 支持代码块: 
 
